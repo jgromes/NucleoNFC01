@@ -1,6 +1,11 @@
 # NucleoNFC01
 C library for X-NUCLEO-NFC01A1 shield, based on M24SR-Y dynamic NFC tag. Tested on STM32 NUCLEO-L152RE board.
 
+## STM32 CubeMX Setup for STM32 NUCLEO-L152RE board
+1. Enable I2C1 in Pinout & Configuration > Connectivity > I2C1
+2. Enable I2C1 Event interrupt in Pinout & Configuration > Connectivity > I2C1 > NVIC Settings
+3. Change I2C1 in pins in Pinout view from PB6/PB7 (default) to PB8/PB9: Click pins PB8/PB9 and select I2C1_SCL/I21_SDA.
+
 ## API Reference
 Unless specified otherwise, all of the API functions return M24SR status code. See `M24SR.h` for details.
 
