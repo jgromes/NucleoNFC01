@@ -242,6 +242,9 @@ unsigned short updateBinary(unsigned short offset, unsigned char* data, unsigned
       appendCRC(wtxCmd, 2);
       HAL_I2C_Master_Transmit(M24SR_hi2c, M24SR_I2C_ADDR | M24SR_I2C_WRITE, wtxCmd, 4, HAL_MAX_DELAY);
     } else {
+      // free allocated memory
+      free(cmd);
+      
       // return status code
       return((resp[1] << 8 ) | resp[2]);
     }
@@ -346,7 +349,7 @@ unsigned short M24SR_WriteTag(char* payload) {
 
   // build the NDEF record
   const char* type = "text/plain";
-  unsigned short recordLen = 3 + strlen(type) + strlen(payload);// + 1;
+  unsigned short recordLen = 3 + strlen(type) + strlen(payload);
   unsigned char* record = (unsigned char*) malloc(recordLen);
   unsigned short recordPtr = 0;
   record[recordPtr++] = 0b11010010;                       // message begin and end, record not chunked, short record, no ID, MIME type
@@ -359,6 +362,7 @@ unsigned short M24SR_WriteTag(char* payload) {
 
   // write record
   state = updateBinary(2, (unsigned char*)record, recordLen);
+  free(record);
   if(state != M24SR_OK) {
     return(state);
   }
@@ -425,6 +429,7 @@ unsigned short M24SR_ReadTag(unsigned char* buf) {
   }
   memcpy(buf, record, ndefLen[1]);
   buf[ndefLen[1]] = '\0';
+  free(record);
 
   // deselect file
   deselect();
