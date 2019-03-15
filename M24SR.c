@@ -100,11 +100,6 @@ void sendCommand(unsigned char* cmd, unsigned long len) {
   // append CRC
   appendCRC(msg, len);
 
-  // print message to UART for debugging
-  //println("CMD");
-  //HAL_UART_Transmit(&huart2, msg, len, HAL_MAX_DELAY);
-  //println("");
-
   // send the message
   HAL_I2C_Master_Transmit(M24SR_hi2c, M24SR_I2C_ADDR | M24SR_I2C_WRITE, msg, len + 2, HAL_MAX_DELAY);
 
@@ -124,11 +119,6 @@ void getResponse(unsigned char* buf, unsigned char len) {
 
   // read response
   HAL_I2C_Master_Receive(M24SR_hi2c, M24SR_I2C_ADDR | M24SR_I2C_READ, buf, len, HAL_MAX_DELAY);
-
-  // print message to UART for debugging
-  //println("RSP");
-  //HAL_UART_Transmit(&huart2, buf, len, HAL_MAX_DELAY);
-  //println("");
 }
 
 unsigned short getResponseData(unsigned long len, unsigned long codePos, unsigned char* data, unsigned char dataLen) {
