@@ -49,6 +49,13 @@ static const unsigned short crc_table[256] = {
   0x7bc7, 0x6a4e, 0x58d5, 0x495c, 0x3de3, 0x2c6a, 0x1ef1, 0x0f78
 };
 
+/**
+  * @brief  Calculates CRC over provided data.
+  * @param  data:  Data over which the CRC should be calculated.
+  * @param  len:   Length of data.
+  * @param  crc:   Initial CRC value.
+  * @retval Calculated 16-bit CRC-A value
+  */
 unsigned short getCRC(const unsigned char* data, unsigned long len, unsigned short crc) {
   for(unsigned long i = 0; i < len; i++) {
     crc = (crc >> 8) ^ crc_table[(crc ^ data[i]) & 0x00FF];
@@ -57,6 +64,12 @@ unsigned short getCRC(const unsigned char* data, unsigned long len, unsigned sho
   return crc;
 }
 
+/**
+  * @brief  Calculates and appends CRC to the provided data.
+  * @param  data:  Data to which the CRC should be appended.
+  * @param  len:   Length of data.
+  * @retval None
+  */
 void appendCRC(unsigned char* data, unsigned long len) {
   unsigned long crc = getCRC(data, len, M24SR_CRC_INIT);
 
@@ -64,6 +77,10 @@ void appendCRC(unsigned char* data, unsigned long len) {
   data[len + 1] = (unsigned char)((crc >> 8) & 0xFF);
 }
 
+/**
+  * @brief  Kills any ongoing RF sessions and opens I2C session.
+  * @retval None
+  */
 void killRFSession(void) {
   // single-byte command with no CRC
   uint8_t data[] = {M24SR_KILL_RF_SESSION};
@@ -94,6 +111,10 @@ void getI2CSession(void) {
   HAL_Delay(1);
 }
 
+/**
+  * @brief  Releases I2C session, so that new RF sessions can be initiated.
+  * @retval None
+  */
 void releaseI2CSession(void) {
   // see section 7.4 of MS24SR datasheet
 
@@ -107,6 +128,12 @@ void releaseI2CSession(void) {
   SET_BIT(M24SR_hi2c->Instance->CR1, I2C_CR1_STOP);
 }
 
+/**
+  * @brief  Sends command to M24SR.
+  * @param  cmd:  Command to be sent.
+  * @param  len:  Length of command (not including CRC).
+  * @retval None
+  */
 void sendCommand(unsigned char* cmd, unsigned long len) {
   // allocate memory for the message
   unsigned char* msg = (unsigned char*) malloc(len + 2);
@@ -127,6 +154,14 @@ void sendCommand(unsigned char* cmd, unsigned long len) {
   free(msg);
 }
 
+/**
+  * @brief  Waits for M24SR response and saves the entire raw response into provided buffer.
+  *         NOTE: This is a blocking function!
+  * @param  buf:      Buffer to save response into.
+  * @param  len:      Length of buffer.
+  * @param  timeout:  Timeout in ms.
+  * @retval M24SR status codes
+  */
 unsigned short getResponse(unsigned char* buf, unsigned char len, unsigned long timeout) {
   // save timestamp
   unsigned long start = HAL_GetTick();
@@ -155,6 +190,16 @@ unsigned short getResponse(unsigned char* buf, unsigned char len, unsigned long 
   return(M24SR_OK);
 }
 
+/**
+  * @brief  Waits for M24SR response and extracts the payload into provided buffer.
+  *         NOTE: This is a blocking function!
+  * @param  len:      Expected length of the entire raw response.
+  * @param  codePos:  Position of status code MSB inside raw response.
+  * @param  data:     Buffer for the extracted payload.
+  * @param  dataLen:  Expected payload length.
+  * @param  timeout:  Timeout in ms.
+  * @retval M24SR status codes
+  */
 unsigned short getResponseData(unsigned long len, unsigned long codePos, unsigned char* data, unsigned char dataLen, unsigned long timeout) {
   // allocate memory for the message
   unsigned char* msg = (unsigned char*) malloc(len);
@@ -180,10 +225,23 @@ unsigned short getResponseData(unsigned long len, unsigned long codePos, unsigne
   return(statusCode);
 }
 
+/**
+  * @brief  Waits for M24SR response and extracts the response code.
+  *         NOTE: This is a blocking function!
+  * @param  len:      Expected length of the entire raw response.
+  * @param  codePos:  Position of status code MSB inside raw response.
+  * @param  timeout:  Timeout in ms.
+  * @retval M24SR status codes
+  */
 unsigned short getResponseCode(unsigned long len, unsigned long codePos, unsigned long timeout) {
   return(getResponseData(len, codePos, NULL, 0, timeout));
 }
 
+/**
+  * @brief  Activates NDEF Tag Application.
+  *         NOTE: This is a blocking function!
+  * @retval M24SR status codes
+  */
 unsigned short NDEFtagApplicationSelect(void) {
   // build the command
   unsigned char cmd[] = {
@@ -209,6 +267,12 @@ unsigned short NDEFtagApplicationSelect(void) {
   return(getResponseCode(5, 1, M24SR_DEFAULT_I2C_TIMEOUT));
 }
 
+/**
+  * @brief  Select NDEF file. Must be called prior to any reading/writing to NDEF files.
+  *         NOTE: This is a blocking function!
+  * @param  file: ID of required NDEF file.
+  * @retval M24SR status codes
+  */
 unsigned short selectFile(unsigned short file) {
   // build the command
   unsigned char cmd[] = {
@@ -229,6 +293,14 @@ unsigned short selectFile(unsigned short file) {
   return(getResponseCode(5, 1, M24SR_DEFAULT_I2C_TIMEOUT));
 }
 
+/**
+  * @brief  Reads contents of previously selected file.
+  *         NOTE: This is a blocking function!
+  * @param  offset: Offset from file start at which to start reading.
+  * @param  buf:    Buffer to which the data will be saved.
+  * @param  len:    Number of bytes to read.
+  * @retval M24SR status codes
+  */
 unsigned short readBinary(unsigned short offset, unsigned char* buf, unsigned char len) {
   // build the command
   unsigned char cmd[] = {
@@ -247,6 +319,15 @@ unsigned short readBinary(unsigned short offset, unsigned char* buf, unsigned ch
   return(getResponseData(len + 5, len + 1, buf, len, M24SR_DEFAULT_I2C_TIMEOUT));
 }
 
+/**
+  * @brief  Writes to previously selected file.
+  *         NOTE: This is a blocking function!
+  * @param  offset:   Offset from file start at which to start writing.
+  * @param  buf:      Data to write.
+  * @param  len:      Number of bytes to write.
+  * @param  timeout:  Timeout in ms.
+  * @retval M24SR status codes
+  */
 unsigned short updateBinary(unsigned short offset, unsigned char* data, unsigned char len, unsigned long timeout) {
   // build the command
   unsigned char cmdPtr = 0;
@@ -293,6 +374,11 @@ unsigned short updateBinary(unsigned short offset, unsigned char* data, unsigned
   return(M24SR_ERR_I2C_TIMEOUT);
 }
 
+/**
+  * @brief  Deselect previously selected file.
+  *         NOTE: This is a blocking function!
+  * @retval None
+  */
 void deselect(void) {
   // build the command (single byte with CRC)
   unsigned char cmd[] = {
@@ -308,6 +394,11 @@ void deselect(void) {
   getResponse(NULL, 3, M24SR_DEFAULT_I2C_TIMEOUT);
 }
 
+/**
+  * @brief  Initializes M24SR.
+  * @param  hi2c:   Pointer to HAL I2C handle
+  * @retval None
+  */
 unsigned short M24SR_Init(I2C_HandleTypeDef* hi2c) {
   // set I2C handle
   M24SR_hi2c = hi2c;
