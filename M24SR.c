@@ -58,7 +58,7 @@ unsigned short getCRC(const unsigned char* data, unsigned long len, unsigned sho
 }
 
 void appendCRC(unsigned char* data, unsigned long len) {
-  unsigned long crc = getCRC(data, len, CRC_A_INIT);
+  unsigned long crc = getCRC(data, len, M24SR_CRC_INIT);
 
   data[len] = (unsigned char)(crc & 0xFF);
   data[len + 1] = (unsigned char)((crc >> 8) & 0xFF);
@@ -66,14 +66,14 @@ void appendCRC(unsigned char* data, unsigned long len) {
 
 void getI2CSession(void) {
   // single-byte command with no CRC
-  uint8_t data[] = {0x26};
+  uint8_t data[] = {M24SR_GET_I2C_SESSION};
 
   // send the command
   HAL_I2C_Master_Transmit(M24SR_hi2c, M24SR_I2C_ADDR | M24SR_I2C_WRITE, data, 1, HAL_MAX_DELAY);
 
   // there is no response for this command
 
-  // wait a while (prevents some reset-related errors)
+  // wait 1 ms (prevents some reset-related errors)
   HAL_Delay(1);
 }
 
@@ -110,25 +110,44 @@ void sendCommand(unsigned char* cmd, unsigned long len) {
   free(msg);
 }
 
-void getResponse(unsigned char* buf, unsigned char len) {
+unsigned short getResponse(unsigned char* buf, unsigned char len, unsigned long timeout) {
+  // save timestamp
+  unsigned long start = HAL_GetTick();
+
   // poll device ready
-  // TODO timeout
   do {
     HAL_I2C_Master_Transmit(M24SR_hi2c, M24SR_I2C_ADDR | M24SR_I2C_WRITE, NULL, 0, HAL_MAX_DELAY);
+    if(HAL_GetTick() - start >= timeout) {
+      return(M24SR_ERR_I2C_TIMEOUT);
+    }
   } while(M24SR_hi2c->ErrorCode == HAL_I2C_ERROR_AF);
 
   // read response
   HAL_I2C_Master_Receive(M24SR_hi2c, M24SR_I2C_ADDR | M24SR_I2C_READ, buf, len, HAL_MAX_DELAY);
+
+  // verify CRC
+  unsigned short receivedCRC = (buf[len - 1] << 8) | buf[len - 2];
+  unsigned char* msg = (unsigned char*) malloc(len - 2);
+  memcpy(msg, buf, len - 2);
+  unsigned short expectedCRC = getCRC(msg, len - 2, M24SR_CRC_INIT);
+  free(msg);
+  if(receivedCRC != expectedCRC) {
+    return(M24SR_ERR_CRC_MISMATCH);
+  }
+
+  return(M24SR_OK);
 }
 
-unsigned short getResponseData(unsigned long len, unsigned long codePos, unsigned char* data, unsigned char dataLen) {
+unsigned short getResponseData(unsigned long len, unsigned long codePos, unsigned char* data, unsigned char dataLen, unsigned long timeout) {
   // allocate memory for the message
   unsigned char* msg = (unsigned char*) malloc(len);
 
   // get response
-  getResponse(msg, len);
-
-  // TODO verify CRC
+  unsigned short state = getResponse(msg, len, timeout);
+  if(state != M24SR_OK) {
+    free(msg);
+    return(state);
+  }
 
   // get status code
   unsigned short statusCode = (msg[codePos] << 8 ) | msg[codePos + 1];
@@ -144,8 +163,8 @@ unsigned short getResponseData(unsigned long len, unsigned long codePos, unsigne
   return(statusCode);
 }
 
-unsigned short getResponseCode(unsigned long len, unsigned long codePos) {
-  return(getResponseData(len, codePos, NULL, 0));
+unsigned short getResponseCode(unsigned long len, unsigned long codePos, unsigned long timeout) {
+  return(getResponseData(len, codePos, NULL, 0, timeout));
 }
 
 unsigned short NDEFtagApplicationSelect(void) {
@@ -170,7 +189,7 @@ unsigned short NDEFtagApplicationSelect(void) {
   sendCommand(cmd, 13);
 
   // get response
-  return(getResponseCode(5, 1));
+  return(getResponseCode(5, 1, M24SR_DEFAULT_I2C_TIMEOUT));
 }
 
 unsigned short selectFile(unsigned short file) {
@@ -190,7 +209,7 @@ unsigned short selectFile(unsigned short file) {
   sendCommand(cmd, 8);
 
   // get response
-  return(getResponseCode(5, 1));
+  return(getResponseCode(5, 1, M24SR_DEFAULT_I2C_TIMEOUT));
 }
 
 unsigned short readBinary(unsigned short offset, unsigned char* buf, unsigned char len) {
@@ -208,10 +227,10 @@ unsigned short readBinary(unsigned short offset, unsigned char* buf, unsigned ch
   sendCommand(cmd, 6);
 
   // get response
-  return(getResponseData(len + 5, len + 1, buf, len));
+  return(getResponseData(len + 5, len + 1, buf, len, M24SR_DEFAULT_I2C_TIMEOUT));
 }
 
-unsigned short updateBinary(unsigned short offset, unsigned char* data, unsigned char len) {
+unsigned short updateBinary(unsigned short offset, unsigned char* data, unsigned char len, unsigned long timeout) {
   // build the command
   unsigned char cmdPtr = 0;
   unsigned char* cmd = (unsigned char*) malloc(6 + len);
@@ -228,12 +247,14 @@ unsigned short updateBinary(unsigned short offset, unsigned char* data, unsigned
   // send command
   sendCommand(cmd, 6 + len);
 
+  // save timestamp
+  unsigned long start = HAL_GetTick();
+
   // repeat until M24SR finishes update
-  // TODO timeout
-  while(1) {
+  while(HAL_GetTick() - start <= timeout) {
     // check the whole response
     unsigned char resp[5];
-    getResponse(resp, 5);
+    getResponse(resp, 5, timeout);
 
     // check waiting time extension request
     if(resp[0] == 0xF2) {
@@ -249,6 +270,10 @@ unsigned short updateBinary(unsigned short offset, unsigned char* data, unsigned
       return((resp[1] << 8 ) | resp[2]);
     }
   }
+
+  // timed out
+  free(cmd);
+  return(M24SR_ERR_I2C_TIMEOUT);
 }
 
 void deselect(void) {
@@ -263,7 +288,7 @@ void deselect(void) {
   HAL_I2C_Master_Transmit(M24SR_hi2c, M24SR_I2C_ADDR | M24SR_I2C_WRITE, cmd, 3, HAL_MAX_DELAY);
 
   // response for DESELECT command has no status code
-  getResponse(NULL, 3);
+  getResponse(NULL, 3, M24SR_DEFAULT_I2C_TIMEOUT);
 }
 
 unsigned short M24SR_Init(I2C_HandleTypeDef* hi2c) {
@@ -342,7 +367,7 @@ unsigned short M24SR_WriteTag(char* payload) {
 
   // set length to 0
   unsigned char ndefLen[] = {0x00, 0x00};
-  state = updateBinary(0, ndefLen, 2);
+  state = updateBinary(0, ndefLen, 2, M24SR_DEFAULT_I2C_TIMEOUT);
   if(state != M24SR_OK) {
     return(state);
   }
@@ -357,11 +382,10 @@ unsigned short M24SR_WriteTag(char* payload) {
   record[recordPtr++] = strlen(payload);                  // payload length
   memcpy(record + recordPtr, type, strlen(type));         // type field
   recordPtr += strlen(type);
-  //record[recordPtr++] = ' ';                              // leading space
   memcpy(record + recordPtr, payload, strlen(payload));   // payload field
 
   // write record
-  state = updateBinary(2, (unsigned char*)record, recordLen);
+  state = updateBinary(2, (unsigned char*)record, recordLen, M24SR_DEFAULT_I2C_TIMEOUT);
   free(record);
   if(state != M24SR_OK) {
     return(state);
@@ -369,12 +393,19 @@ unsigned short M24SR_WriteTag(char* payload) {
 
   // set correct length
   ndefLen[1] = recordLen;
-  state = updateBinary(0, ndefLen, 2);
+  state = updateBinary(0, ndefLen, 2, M24SR_DEFAULT_I2C_TIMEOUT);
   if(state != M24SR_OK) {
     return(state);
   }
 
-  // TODO verify successful read by checking length
+  // verify successful read by checking length
+  state = readBinary(0, ndefLen, 2);
+  if(state != M24SR_OK) {
+    return(state);
+  }
+  if(ndefLen[1] != recordLen) {
+    return(M24SR_ERR_WRITE_FAILED);
+  }
 
   // deselect file
   deselect();
@@ -425,6 +456,7 @@ unsigned short M24SR_ReadTag(unsigned char* buf) {
   unsigned char* record = (unsigned char*) malloc(ndefLen[1]);
   state = readBinary(2, record, ndefLen[1]);
   if(state != M24SR_OK) {
+    free(record);
     return(state);
   }
   memcpy(buf, record, ndefLen[1]);
