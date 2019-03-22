@@ -64,6 +64,23 @@ void appendCRC(unsigned char* data, unsigned long len) {
   data[len + 1] = (unsigned char)((crc >> 8) & 0xFF);
 }
 
+void killRFSession(void) {
+  // single-byte command with no CRC
+  uint8_t data[] = {M24SR_KILL_RF_SESSION};
+
+  // send the command
+  HAL_I2C_Master_Transmit(M24SR_hi2c, M24SR_I2C_ADDR | M24SR_I2C_WRITE, data, 1, HAL_MAX_DELAY);
+
+  // there is no response for this command
+
+  // wait 1 ms (prevents some reset-related errors)
+  HAL_Delay(1);
+}
+
+/**
+  * @brief  Opens I2C session when RF session is NOT opened.
+  * @retval None
+  */
 void getI2CSession(void) {
   // single-byte command with no CRC
   uint8_t data[] = {M24SR_GET_I2C_SESSION};

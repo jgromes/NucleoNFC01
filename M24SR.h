@@ -65,6 +65,7 @@ I2C_HandleTypeDef* M24SR_hi2c;
 // function prototypes
 unsigned short getCRC(const unsigned char* data, unsigned long len, unsigned short crc);
 void appendCRC(unsigned char* data, unsigned long len);
+void killRFSession(void);
 void getI2CSession(void);
 void releaseI2CSession(void);
 void sendCommand(unsigned char* cmd, unsigned long len);
